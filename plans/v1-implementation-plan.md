@@ -425,6 +425,22 @@ App Hosting does not provide per-PR preview URLs (the old Firebase Hosting previ
 
 ---
 
+## Versioning & Releases
+
+**RavelPlus is a continuously-deployed web app, not a published package** — so classic package SemVer and changeset tooling don't apply yet. There's no consumer pinning a version; the deployed commit *is* the live version. "Versioning" splits into two real concerns:
+
+1. **What's live / bug traceability** → the **git SHA** of the deployed revision. App Hosting / Cloud Run already tags revisions with it. No tooling needed.
+2. **Product milestones** (roadmap v1, v1.1, v1.2, v2…) → human-meaningful releases, tracked with git tags + GitHub Releases.
+
+**Approach for v1 → v2 (low ceremony, all free):**
+- **Conventional Commits** — `feat:`, `fix:`, `docs:`, `chore:`, etc. Enables auto-generated release notes/changelogs later and pairs with CI.
+- **Milestone git tags** — tag `v1.0.0` when v1 ships, `v1.1.0` for stash tracking, etc. Roadmap phases supply the numbers.
+- **GitHub Releases** — one per milestone tag; `gh release create --generate-notes` builds notes from merged PRs. The PR history *is* the changelog pre-launch — no hand-maintained `CHANGELOG.md` until/unless it's useful.
+
+**When to adopt Changesets (`@changesets/cli`):** at **v3**, when the React Native/Expo app shares code with web via **internal workspace packages** (e.g. `packages/api-client`, `packages/types`). Once more than one consumer pins a shared package, independent versioning matters and Changesets earns its place. Premature before then — don't add it for a single deployed app.
+
+---
+
 ## Documentation Reference (`docs/resources.md`)
 
 A separate file at `docs/resources.md` (in the repo) will collect official docs, tutorials, and reference material for the tech stack — focused on areas where Diana wants ramp-up support (GCP, Playwright) and quick-reference for the rest.
