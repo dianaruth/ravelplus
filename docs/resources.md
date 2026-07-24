@@ -1,160 +1,202 @@
 # RavelPlus — Tech Stack Reference
 
-A living document. Add links as you find useful resources. Organized by priority — GCP/Firebase and Playwright are the areas with the steepest ramp-up.
+A living document. Add links as you find useful resources. Organized by priority — Expo/EAS and the offline-sync research are the areas with the steepest ramp-up; Supabase/Drizzle carries over from the previous plan as priority reading.
+
+> **Note:** Spot-check links before deep-diving — doc sites reorganize. Anything broken: find the new path and update it here.
 
 ---
 
-## Hosting, Database & Auth
+## Expo & React Native
 
-> Priority reading. Diana hasn't used GCP in years and is new to Supabase/Drizzle. Start here before Phase 1.
-
-### Firebase App Hosting (Cloud Run) — deployment
-- [Get started with App Hosting](https://firebase.google.com/docs/app-hosting/get-started) — **current path for Next.js on Firebase** (runs on Cloud Run; the older "Hosting frameworks experiment" is permanently closed)
-- [App Hosting overview](https://firebase.google.com/docs/app-hosting) — GitHub integration, automatic deploys on push to `main`, `apphosting.yaml` config
-- [Cloud Run overview](https://cloud.google.com/run/docs/overview/what-is-cloud-run) — what App Hosting runs on underneath; useful for understanding scaling and `maxInstances`
-- ⚠️ App Hosting requires the **Blaze (pay-as-you-go)** plan. Free quota covers our usage — set a $1 billing alert as a safeguard.
-
-### Supabase (Postgres)
-- [Supabase quickstart](https://supabase.com/docs/guides/getting-started) — create a project, get the connection string
-- [Local Development & CLI](https://supabase.com/docs/guides/local-development) — `supabase start` runs the full stack locally (used for tests + offline dev)
-- [Database overview](https://supabase.com/docs/guides/database/overview) — table editor, SQL editor, connection pooling
-- [Connecting to your database](https://supabase.com/docs/guides/database/connecting-to-postgres) — direct vs. pooled connection strings (use the pooled/`6543` URL for serverless)
-- [Supabase pricing](https://supabase.com/pricing) — free tier limits (500 MB DB, pauses after 1 week idle)
-
-### Drizzle ORM
-- [Get Started with Drizzle and Supabase](https://orm.drizzle.team/docs/get-started/supabase-new) — **our exact setup**: schema, env, connection, CRUD
-- [Schema declaration](https://orm.drizzle.team/docs/sql-schema-declaration) — defining tables in `db/schema.ts`
-- [Migrations with drizzle-kit](https://orm.drizzle.team/docs/migrations) — `drizzle-kit generate` + `migrate`
-- [Select / insert / update / delete queries](https://orm.drizzle.team/docs/select) — query builder reference
-- [Drizzle relations](https://orm.drizzle.team/docs/relations) — modeling the many-to-many joins (relevant for v1.1 yarn/projects)
-
-### Supabase Auth
-- [Auth overview](https://supabase.com/docs/guides/auth) — concepts: users, sessions, JWTs, providers
-- [Next.js Server-Side Auth (`@supabase/ssr`)](https://supabase.com/docs/guides/auth/server-side/nextjs) — **our exact setup**: browser/server/middleware clients, cookie-based sessions in the App Router
-- [Login with Google](https://supabase.com/docs/guides/auth/social-login/auth-google) — OAuth setup + Google Cloud Console config
-- [Password-based auth](https://supabase.com/docs/guides/auth/passwords) — email/password sign-up and sign-in
-- [Row Level Security](https://supabase.com/docs/guides/database/postgres/row-level-security) — **core to our security model**: `auth.uid()` policies enforce per-user data isolation in the DB
-- [RLS + `auth.uid()` helpers](https://supabase.com/docs/guides/database/postgres/row-level-security#helper-functions) — writing `using (auth.uid() = user_id)` policies
-- [Redirect URLs & middleware](https://supabase.com/docs/guides/auth/server-side/nextjs#create-a-middleware-file) — session refresh + protecting `/me/**`
-
-### GCP Billing, Logging & Errors
-- [Create and manage budgets & alerts](https://docs.cloud.google.com/billing/docs/how-to/budgets) — set the $1 alert here
-- [Firebase pricing overview](https://firebase.google.com/pricing) — Spark vs. Blaze, free tier table
-- [Cloud Run pricing](https://cloud.google.com/run/pricing) — request + compute free tier details
-- [Cloud Logging overview](https://cloud.google.com/logging/docs/overview) — where `console.log` from the Next.js server (on Cloud Run) goes
-- [Sentry for Next.js](https://docs.sentry.io/platforms/javascript/guides/nextjs/) — client + server error tracking (free, 1-user plan)
-
----
-
-## Playwright
-
-> Second priority. Playwright is powerful but has a learning curve around auth state and async patterns.
+> Top priority. Diana is experienced in React web but new to Expo, React Native, and the native app lifecycle. Everything else builds on this. Good news: the daily dev loop runs in the browser (see Web target below), so the familiar web DX carries over.
 
 ### Getting started
-- [Installation](https://playwright.dev/docs/intro) — `npm init playwright@latest`, test runner basics
-- [Writing your first test](https://playwright.dev/docs/writing-tests) — `test()`, `expect()`, `page.goto()`
-- [Running tests](https://playwright.dev/docs/running-tests) — CLI flags, `--headed`, `--debug`, `--ui`
-- [VS Code extension](https://playwright.dev/docs/getting-started-vscode) — run/debug tests directly in VS Code, test picker
+- [Expo docs — Get started](https://docs.expo.dev/get-started/introduction/) — `create-expo-app`, project structure, running on a device
+- [Expo Go vs development builds](https://docs.expo.dev/develop/development-builds/introduction/) — **read early**: Expo Go is the $0 on-device dev loop (critical on Windows, no iOS Simulator); a dev build becomes required the moment we add a native module Expo Go doesn't bundle (e.g., RevenueCat)
+- [expo-router](https://docs.expo.dev/router/introduction/) — file-based routing, deliberately modeled on Next.js App Router conventions; layouts, tabs, dynamic routes. Deep linking comes free — this is how PRD §6.8 filter-state persistence works (deep links on native, real URLs on web)
+- [React Native docs — Core components](https://reactnative.dev/docs/components-and-apis) — View/Text/FlatList/Pressable; the "div/span don't exist" mental shift
+- [React Native — Platform-specific code](https://reactnative.dev/docs/platform-specific-code) — `Platform.select`, `.ios.tsx`/`.web.tsx` file resolution
 
-### Core concepts
-- [Selectors](https://playwright.dev/docs/locators) — prefer `getByRole`, `getByLabel`, `getByText` over CSS selectors
-- [Assertions](https://playwright.dev/docs/test-assertions) — `expect(locator).toBeVisible()`, `toHaveText()`, etc.
-- [Actions](https://playwright.dev/docs/input) — `click()`, `fill()`, `press()`, navigation
-- [Network interception](https://playwright.dev/docs/network) — `page.route()` for mocking API responses in tests
+### Web target (enabled from day one)
+- [Expo for Web](https://docs.expo.dev/workflow/web/) — `expo start` → press `w`: browser dev loop with hot reload + React DevTools — **the primary daily dev surface**
+- [react-native-web](https://necolas.github.io/react-native-web/) — what RN primitives compile to on web (real DOM/CSS); mature, powers X/Twitter web
+- [Platform-specific modules in expo-router](https://docs.expo.dev/router/advanced/platform-specific-modules/) — `.web.tsx` files can use any web/DOM library; how Phase 2's feature-rich web screens diverge without forking logic
+- [Publishing Expo web apps](https://docs.expo.dev/distribution/publishing-websites/) — static export + hosting (Phase 2; any free static host works)
+- ⚠️ Per the plan's day-one rules: every library adoption gets a **web-compat check**, and CI keeps the web bundle building so Phase 2 never becomes a rescue project.
 
-### Auth strategy
-- [Authentication guide](https://playwright.dev/docs/auth) — **most important page for our setup**. The `storageState` pattern lets you sign in once and reuse the session across tests — critical since we use Supabase Auth sessions.
-- Our pattern: sign in once in a `global-setup.ts` file, save to `playwright/.auth/user.json`, all tests that need auth load that state. Tests run against a local Supabase (`supabase start`) test database.
+### SDK modules we use
+- [expo-sqlite](https://docs.expo.dev/versions/latest/sdk/sqlite/) — the local database under the offline-first layer (Drizzle drives it); check its web (WASM/OPFS) support status for spike R1
+- [expo-image-picker](https://docs.expo.dev/versions/latest/sdk/imagepicker/) — stash/project/pin photos
+- [expo-image-manipulator](https://docs.expo.dev/versions/latest/sdk/imagemanipulator/) — **mandatory client-side compression** before upload (see plan: 1 GB Supabase storage ceiling)
+- [expo-camera](https://docs.expo.dev/versions/latest/sdk/camera/) — barcode scanning for spike R3
+- [expo-apple-authentication](https://docs.expo.dev/versions/latest/sdk/apple-authentication/) — native Sign in with Apple button/flow
+- [expo-document-picker](https://docs.expo.dev/versions/latest/sdk/document-picker/) — project file/PDF attachments
 
-### Debugging
-- [Trace viewer](https://playwright.dev/docs/trace-viewer-intro) — step-by-step trace of a test run, screenshots at each action
-- [Inspector / pause](https://playwright.dev/docs/debug) — `page.pause()` drops you into the Playwright Inspector to debug interactively
-- [Codegen](https://playwright.dev/docs/codegen) — record browser actions and generate test code automatically (good for getting started fast)
-
-### Configuration
-- [Config file reference](https://playwright.dev/docs/test-configuration) — `playwright.config.ts`, `baseURL`, `projects` (multi-browser)
-- [Using environment variables](https://playwright.dev/docs/test-parameterize) — pass Supabase connection strings etc. into tests
-
----
-
-## CI/CD — GitHub Actions
-
-> Free within budget. The whole pipeline stays at $0 — see the CI/CD section of the implementation plan for the minute budget and guardrails.
-
-### GitHub Actions basics
-- [Workflow syntax](https://docs.github.com/en/actions/using-workflows/workflow-syntax-for-github-actions) — `on:`, `jobs:`, `steps:`, the YAML reference
-- [Events that trigger workflows](https://docs.github.com/en/actions/using-workflows/events-that-trigger-workflows) — `pull_request` (CI gates) and `workflow_dispatch` (manual preview deploy)
-- [Caching dependencies](https://docs.github.com/en/actions/using-workflows/caching-dependencies-to-speed-up-workflows) — cache npm + Playwright browsers to cut minutes
-- [`concurrency` / cancel-in-progress](https://docs.github.com/en/actions/using-jobs/using-concurrency) — kill stale PR runs so they don't burn minutes
-- [Billing & free-tier minutes](https://docs.github.com/en/billing/managing-billing-for-github-actions/about-billing-for-github-actions) — **2,000 min/month** on private repos; ⚠️ macOS bills 10×, Windows 2×, Linux 1× — stay on `ubuntu-latest`
-- [Required status checks / branch protection](https://docs.github.com/en/repositories/configuring-branches-and-merges-in-your-repository/managing-protected-branches/about-protected-branches) — block merges until CI passes
-
-### Playwright in CI
-- [Playwright on CI](https://playwright.dev/docs/ci) — official guidance: containers, browser install, headless config
-- [Playwright GitHub Actions guide](https://playwright.dev/docs/ci-intro) — **our exact path**: the generated workflow + trace artifact upload
-- ⚠️ Microsoft's hosted "Playwright Testing" Azure service is **paid** — we do NOT use it. Plain `npx playwright test` on an Actions runner is the free path.
-
-### Cloud Run preview deploys (manual)
-- [Deploy to Cloud Run from a workflow](https://github.com/google-github-actions/deploy-cloudrun) — the `google-github-actions/deploy-cloudrun` action used by the manual preview job
-- [Cloud Run revision tags & traffic](https://cloud.google.com/run/docs/managing/revisions) — tagged revisions give a stable preview URL without taking production traffic
+### Gotchas for this project
+- ⚠️ **Windows dev:** no iOS Simulator. Daily loop = browser (web target) + Expo Go on the physical iPhone as the continuous native check. The browser never substitutes for on-device verification — iOS-specific issues only surface on the phone.
+- ⚠️ In-app purchases and some auth native modules don't run in Expo Go — sequence RevenueCat work after the dev-build switch (plan Phase 6).
 
 ---
 
-## Next.js App Router
+## EAS (Build / Submit / Update)
 
-> Diana is experienced here — this is quick-reference only.
+> How binaries get made and shipped without a Mac.
 
-- [App Router docs](https://nextjs.org/docs/app) — layouts, pages, server/client components, routing
-- [Server vs. client components](https://nextjs.org/docs/app/building-your-application/rendering/server-components) — decision guide for when to use each
-- [Route Handlers](https://nextjs.org/docs/app/building-your-application/routing/route-handlers) — `app/api/` endpoints (our Cloud Functions proxy calls go through here)
-- [Middleware](https://nextjs.org/docs/app/building-your-application/routing/middleware) — where the Supabase middleware client refreshes the session and protects `/me/**`
-- [useSearchParams](https://nextjs.org/docs/app/api-reference/functions/use-search-params) — URL-synced filter state for the search page
-- [`next/image`](https://nextjs.org/docs/app/api-reference/components/image) — image optimization, important for pattern thumbnails
-- [`next/font`](https://nextjs.org/docs/app/api-reference/components/font) — Google Fonts with zero layout shift
+- [EAS Build — setup](https://docs.expo.dev/build/setup/) — cloud builds for iOS/Android; `eas.json` profiles (`development` / `preview` / `production`)
+- [EAS Submit](https://docs.expo.dev/submit/introduction/) — push builds to TestFlight / Play Console from the CLI
+- [EAS Update](https://docs.expo.dev/eas-update/introduction/) — OTA updates for JS-only changes between store builds
+- [Runtime versions & update compatibility](https://docs.expo.dev/eas-update/runtime-versions/) — **read before first release**: OTA updates only apply to builds with a matching `runtimeVersion`; any native change bumps it
+- [Internal distribution](https://docs.expo.dev/build/internal-distribution/) — ad-hoc installs pre-TestFlight (needs the paid Apple account + registered device UDIDs)
+- [Expo pricing](https://expo.dev/pricing) — free tier ≈ 30 cloud builds/month — **build on demand, not per-commit**
+- [Apple Developer Program enrollment](https://developer.apple.com/programs/enroll/) — $99/yr (approved); enroll before Sheryl's first TestFlight build
+- [TestFlight overview](https://developer.apple.com/testflight/) — internal vs external testers, review requirements for external
 
 ---
 
-## shadcn/ui + Tailwind
+## Supabase (Postgres + Auth + Storage + Realtime + Edge Functions)
 
-- [shadcn/ui — Next.js installation](https://ui.shadcn.com/docs/installation/next) — CLI setup, `components.json`, import alias
-- [shadcn/ui component catalog](https://ui.shadcn.com/docs/components) — browse available components (Button, Card, Dialog, Drawer, etc.)
-- [Theming](https://ui.shadcn.com/docs/theming) — how CSS custom properties map to component styles; where Sheryl's palette goes
-- [Tailwind CSS v4 docs](https://tailwindcss.com/docs) — utility reference
-- [Tailwind — Responsive design](https://tailwindcss.com/docs/responsive-design) — `sm:`, `md:`, `lg:` breakpoints, mobile-first approach
-- [Radix UI primitives](https://www.radix-ui.com/primitives) — the unstyled components shadcn/ui builds on; useful when customizing behavior
+> Carried over as priority reading — still new to Diana, and now the *entire* backend (GCP is dropped).
+
+### Core
+- [Supabase with Expo/React Native tutorial](https://supabase.com/docs/guides/getting-started/tutorials/with-expo-react-native) — **our exact client setup**: supabase-js in RN, session persistence with AsyncStorage/SecureStore
+- [Local development & CLI](https://supabase.com/docs/guides/local-development) — `supabase start` runs the full stack locally (dev + CI tests)
+- [Database overview](https://supabase.com/docs/guides/database/overview) — table editor, SQL editor
+- [Supabase pricing](https://supabase.com/pricing) — free tier: 500 MB DB, 1 GB storage, 5 GB egress, 500K edge invocations; pauses after 1 week idle
+
+### Auth
+- [Auth overview](https://supabase.com/docs/guides/auth) — users, sessions, JWTs
+- [Native Sign in with Apple](https://supabase.com/docs/guides/auth/social-login/auth-apple) — pairs with `expo-apple-authentication`; required on iOS since we offer Google login
+- [Native Google sign-in](https://supabase.com/docs/guides/auth/social-login/auth-google) — RN flow + Google Cloud Console config; web uses the standard OAuth redirect flow instead
+- [Password-based auth](https://supabase.com/docs/guides/auth/passwords) — email/password
+- [Row Level Security](https://supabase.com/docs/guides/database/postgres/row-level-security) — **core security model**: `auth.uid() = user_id` on every user table; the DB refuses to leak rows regardless of query bugs
+
+### Storage
+- [Storage overview](https://supabase.com/docs/guides/storage) — buckets, upload from RN
+- [Storage access control](https://supabase.com/docs/guides/storage/security/access-control) — RLS-style policies on objects (per-user image isolation)
+
+### Realtime
+- [Realtime overview](https://supabase.com/docs/guides/realtime) — channels, broadcast, presence
+- [Postgres Changes](https://supabase.com/docs/guides/realtime/postgres-changes) — the live cross-device nudge for counters/entities (exact role depends on spike R1's outcome)
+
+### Edge Functions
+- [Edge Functions overview](https://supabase.com/docs/guides/functions) — Deno runtime, deploy via CLI; hosts `ravelry-import`, `revenuecat-webhook`, `delete-account`
+- [Managing secrets](https://supabase.com/docs/guides/functions/secrets) — where the Ravelry API key lives (never in the app bundle)
+- [Background tasks](https://supabase.com/docs/guides/functions/background-tasks) — relevant for the chunked, rate-limited import worker
+
+---
+
+## Drizzle ORM (double duty: Postgres + expo-sqlite)
+
+- [Get started — Expo SQLite](https://orm.drizzle.team/docs/get-started/expo-new) — **our local DB setup**: schema, driver, `useLiveQuery` reactivity
+- [Get started — Supabase](https://orm.drizzle.team/docs/get-started/supabase-new) — the same schema definitions driving the remote Postgres side
+- [Schema declaration](https://orm.drizzle.team/docs/sql-schema-declaration) — `db/schema.ts`, single source of truth
+- [Migrations with drizzle-kit](https://orm.drizzle.team/docs/migrations) — separate migration outputs for the postgres and sqlite dialects
+- [Relations](https://orm.drizzle.team/docs/relations) — the many-to-many joins (`project_yarns`, `pin_tools`, fibers)
+
+---
+
+## Offline-First Sync (Spike R1 reading)
+
+> Second priority. Highest-risk technical decision in the plan — read before building anything in `lib/sync/`.
+
+### Candidates
+- [PowerSync docs](https://docs.powersync.com/) — Postgres↔SQLite sync engine; first candidate. Has a dedicated **web SDK** (WASM SQLite) — a point in its favor given the day-one web target
+- [PowerSync + Supabase integration guide](https://docs.powersync.com/integration-guides/supabase-+-powersync) — the exact pairing we'd use
+- [PowerSync pricing](https://www.powersync.com/pricing) — verify free tier / self-host terms against the $0 rule
+- [WatermelonDB](https://watermelondb.dev/docs) — RN-native reactive DB with a sync protocol you implement server-side; **weak web story — likely disqualifying**
+- [Legend-State](https://legendapp.com/open-source/state/) — state library with Supabase persistence plugin; evaluate quickly, likely too shallow for per-field merge
+
+### Concepts (for the custom-build option)
+- [Local-first software (Ink & Switch)](https://www.inkandswitch.com/local-first/) — the canonical essay; good framing for the conflict model
+- [Supabase offline-first discussion](https://github.com/supabase/supabase/discussions/357) — long-running community thread; useful map of approaches and pitfalls
+
+**Spike criteria (from the plan):** per-field LWW merge · $0 at MVP scale · Expo compatibility (Go or dev build?) · **web compatibility** (Phase 2 is committed — native-only engines are disqualified) · RLS enforced on the sync path · coexists with the image upload queue · sane battery/bandwidth under multi-device live edits.
+
+---
+
+## UI — NativeWind, Components, Accessibility
+
+- [NativeWind docs](https://www.nativewind.dev/) — Tailwind syntax for RN; compiles to real CSS on web; where Sheryl's design tokens land (theme config)
+- [React Native — FlatList performance](https://reactnative.dev/docs/optimizing-flatlist-configuration) — stash/pins lists at scale
+- [FlashList (Shopify)](https://shopify.github.io/flash-list/) — faster list primitive; candidate for the pins masonry gallery — ⚠️ verify web support at adoption (day-one rule)
+- [React Native — Accessibility](https://reactnative.dev/docs/accessibility) — accessibility props, VoiceOver/TalkBack; PRD targets WCAG 2.2 AA at launch, not later
+- [Apple HIG — Live Activities](https://developer.apple.com/design/human-interface-guidelines/live-activities) — Phase 3 reference only; skim so MVP decisions don't foreclose it
 
 ---
 
 ## Testing
 
-### Jest + React Testing Library
-- [Jest with Next.js](https://nextjs.org/docs/app/building-your-application/testing/jest) — official Next.js setup guide
-- [React Testing Library docs](https://testing-library.com/docs/react-testing-library/intro/) — `render`, `screen`, `userEvent`
-- [Common queries cheatsheet](https://testing-library.com/docs/queries/about) — `getByRole` vs `getByText` vs `getByTestId`
-- [Testing custom hooks](https://react-hooks-testing-library.com/) — `renderHook` for testing `usePatternSearch`, `useCollection`
-
-### Mocking
+### Unit — Jest + React Native Testing Library
+- [Unit testing with Expo](https://docs.expo.dev/develop/unit-testing/) — `jest-expo` preset setup
+- [React Native Testing Library](https://callstack.github.io/react-native-testing-library/) — `render`, `screen`, `userEvent` for RN components
 - [Jest mock functions](https://jestjs.io/docs/mock-functions) — `jest.fn()`, `jest.mock()`
-- [Mock Service Worker (MSW)](https://mswjs.io/docs/) — intercept fetch calls in tests; useful for mocking the Ravelry API in Route Handler unit tests
-- [pglite](https://github.com/electric-sql/pglite) — in-memory Postgres for testing Drizzle queries without a running database
+- [pglite](https://github.com/electric-sql/pglite) — in-memory Postgres for testing Drizzle queries/Postgres-side logic without a running DB
+
+### E2E — Maestro
+- [Maestro docs](https://maestro.mobile.dev/) — install, first flow, YAML syntax
+- [E2E tests with Maestro on EAS](https://docs.expo.dev/eas/workflows/reference/e2e-tests/) — running Maestro against Expo builds
+- ⚠️ **Maestro Cloud is paid — we don't use it.** Local runs + Android emulator in CI is the free path.
+- [Android emulator on GitHub Actions](https://github.com/ReactiveCircus/android-emulator-runner) — the action for CI E2E on `ubuntu-latest` (KVM); deferred until flows stabilize
+- (Playwright returns in Phase 2 for the desktop web app — the old plan's Playwright ramp-up notes are in git history.)
+
+### RLS verification
+- Two-user test asserting cross-user reads/writes fail on every user table — runs against `supabase start` in CI. (Pattern: supabase-js with two signed-in test clients; no special tooling needed.)
 
 ---
 
-## Ravelry API
+## RevenueCat (subscriptions)
 
-- [Ravelry API docs](https://www.ravelry.com/api) — full endpoint reference, auth setup
-- [Pattern search endpoint](https://www.ravelry.com/api#patterns_search) — query params, filters, response shape
-- [Pattern detail endpoint](https://www.ravelry.com/api#patterns_show) — full pattern object
-- [API authentication](https://www.ravelry.com/api#introduction_authentication) — Basic Auth with personal access key (what we use in Cloud Functions)
-- ⚠️ **Rate limit:** 1 request/second per API key. Our debounced search (`300ms`) stays well within this.
+- [RevenueCat + Expo installation](https://www.revenuecat.com/docs/getting-started/installation/expo) — SDK setup (**requires a dev build — not Expo Go**)
+- [Quickstart](https://www.revenuecat.com/docs/getting-started/quickstart) — products, entitlements, offerings model
+- [Webhooks](https://www.revenuecat.com/docs/integrations/webhooks) — feeds the `revenuecat-webhook` Edge Function that writes the `subscriptions` table
+- [Sandbox testing](https://www.revenuecat.com/docs/test-and-launch/sandbox) — TestFlight sandbox purchases
+- [Pricing](https://www.revenuecat.com/pricing/) — free up to $2.5K/mo tracked revenue
+- Phase 2 note: web subscriptions are a different rail (RevenueCat Web Billing / Stripe) — evaluate when web ships, not now
+
+---
+
+## Ravelry API (Spike R2 — ✅ audited 2026-07-18, see `plans/ravelry-api-research.md`)
+
+- [Ravelry API docs](https://www.ravelry.com/api) — full endpoint reference (login required; actively maintained)
+- [Developer portal](https://www.ravelry.com/pro/developer) — app/key creation ("RavelPlus" Pro account already exists)
+- [API License Agreement](https://www.ravelry.com/content/legal/api-agreement) — the authoritative terms (v1.0, Nov 2020)
+- Import endpoints confirmed: `stash/list|show|unified/list`, `needles/list|sizes|types`, `projects/list|show`, `packs`, plus `queue`/`favorites`/`library` for Phase 2
+- Auth for import: **OAuth 2.0** (`/oauth2/auth` + `/oauth2/token`, 24 h tokens, `offline` scope for refresh)
+- ⚠️ **Rate limit:** none officially published; 429 has undocumented per-method limits — we self-impose 1 req/sec in the import worker with backoff
+- ✅ **No commercial fee** in the current agreement; constraints are audience restriction + discretionary revocation — confirmation email to api@ravelry.com before Phase 6 ships
+- ⚠️ **No redistribution of Ravelry data** (clause 1i) — never bulk-seed `yarn_catalog` from the API
+
+---
+
+## Sentry
+
+- [Sentry for React Native](https://docs.sentry.io/platforms/react-native/) — SDK install, error boundaries
+- [Sentry + Expo setup](https://docs.sentry.io/platforms/react-native/manual-setup/expo/) — config plugin, source maps for EAS builds
+- [Releases & source maps](https://docs.sentry.io/platforms/react-native/sourcemaps/) — tie errors to build number + EAS Update id
+- Free tier: 1 user, 5K errors/month — only Diana needs dashboard access
+
+---
+
+## CI/CD — GitHub Actions
+
+> The whole pipeline stays at $0 — see the CI/CD section of the implementation plan.
+
+- [Workflow syntax](https://docs.github.com/en/actions/using-workflows/workflow-syntax-for-github-actions) — `on:`, `jobs:`, `steps:`
+- [Caching dependencies](https://docs.github.com/en/actions/using-workflows/caching-dependencies-to-speed-up-workflows) — npm + Supabase docker layers
+- [`concurrency` / cancel-in-progress](https://docs.github.com/en/actions/using-jobs/using-concurrency) — stale PR runs don't burn minutes
+- [Billing & free-tier minutes](https://docs.github.com/en/billing/managing-billing-for-github-actions/about-billing-for-github-actions) — 2,000 min/month private; ⚠️ macOS 10×, Windows 2× — **`ubuntu-latest` only**
+- [Required status checks](https://docs.github.com/en/repositories/configuring-branches-and-merges-in-your-repository/managing-protected-branches/about-protected-branches) — nothing merges red
+- CI also runs an **Expo web export** so the web bundle never bit-rots (day-one rule)
+- Note: EAS Build runs on Expo's infrastructure, not Actions minutes — trigger builds on demand, not per-commit
 
 ---
 
 ## Recommended Tutorials
 
-> End-to-end walkthroughs — not just docs. Good for building mental models.
+> End-to-end walkthroughs — not just docs. Good for building mental models. Do these roughly in order.
 
-- **Drizzle + Supabase end-to-end** — [Get Started with Drizzle and Supabase](https://orm.drizzle.team/docs/get-started/supabase-new) — our exact DB setup, start to finish
-- **Supabase Auth with Next.js App Router** — [Server-Side Auth tutorial](https://supabase.com/docs/guides/auth/server-side/nextjs) — `@supabase/ssr` clients, middleware session refresh, RLS
-- **Next.js deploy to Firebase App Hosting** — [App Hosting get started](https://firebase.google.com/docs/app-hosting/get-started) — GitHub-connected deploy pipeline
-- **Playwright end-to-end** — [Playwright official tutorial](https://playwright.dev/docs/writing-tests) + [auth setup walkthrough](https://playwright.dev/docs/auth) — do these in order
+1. **Expo fundamentals** — [Expo tutorial (official)](https://docs.expo.dev/tutorial/introduction/) — build a small app with expo-router; covers the phone + web dev loop
+2. **Supabase + Expo end-to-end** — [with-Expo tutorial](https://supabase.com/docs/guides/getting-started/tutorials/with-expo-react-native) — auth + CRUD from RN, our exact client setup
+3. **Drizzle + Expo SQLite** — [Expo get-started](https://orm.drizzle.team/docs/get-started/expo-new) — local DB with live queries, start to finish
+4. **PowerSync + Supabase** — [integration guide](https://docs.powersync.com/integration-guides/supabase-+-powersync) — doubles as spike R1 groundwork
+5. **First Maestro flow** — [Maestro getting started](https://maestro.mobile.dev/getting-started/installing-maestro) — install → record → run against a build

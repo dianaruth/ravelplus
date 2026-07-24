@@ -167,6 +167,17 @@ A foundational UX pattern that differentiates [AppName] from every competitor.
 
 **Smart auto-population:** When a user selects a known brand + yarn name combination, the app pre-populates color name options, yards per skein, fiber type, and weight from the shared yarn database. User can override any auto-filled value.
 
+> **📌 Decision note — yarn lookup & the shared yarn database (2026-07-18, Diana; for Sheryl's review):**
+> Technical research (`plans/ravelry-api-research.md`) established that Ravelry's API license **prohibits copying their yarn database into ours** — no bulk seeding and no caching of looked-up records — but permits users acting on Ravelry data *for their own records*. That leaves two ways to power auto-population with Ravelry's yarn data:
+>
+> 1. **Pointer model — adopted for MVP.** The brand/yarn combobox merges two labeled sources: our own shared yarn database and live, user-initiated Ravelry search. Picking a Ravelry match fills the form and saves the values **only into that user's own stash entry** (with the Ravelry yarn ID stored for provenance).
+>    *What has to happen:* nothing from Ravelry — this fits their license as written (a courtesy heads-up is included in our planned email to api@ravelry.com). *Accepted trade-offs:* Ravelry-powered auto-fill works **online only** — offline stash-add degrades to manual field entry, a soft carve-out from §9's "fully functional offline" principle that needs a designed degraded state (UX decision: Sheryl); and our own shared database starts thin, growing from manual seeding and user-created entries.
+>
+> 2. **Cached model — possible upgrade path.** Same as above, but looked-up yarns are also saved into the shared yarn database, so later users get instant results and auto-fill works offline.
+>    *What has to happen:* **explicit written permission from Ravelry** (their license invites exactly this conversation via api@ravelry.com — it's a "nice-to-have" ask in our planned email). Without their yes, this model is a slow-motion copy of their database and stays off the table.
+>
+> Usage-scale check: lookups only happen when a user adds newly purchased yarn (a few times/month per user), so rate limits and API load are non-issues at any realistic scale under either model. Related: the same research **disproved the assumed Ravelry commercial API licensing fee** referenced in §6.7, §7, and §10 (#12/#14) — no fee exists in the current license; the real exposure is discretionary revocation, which both models above survive gracefully.
+
 **QR scanner:** Users can scan a yarn label QR code or barcode to auto-fill the entry form. Where QR data is available from the manufacturer, relevant fields are populated automatically. **Research required:** Evaluate 3rd party tools and open barcode databases for reliability and coverage before committing to an implementation approach — see §10 Open Decisions.
 
 **Stash intelligence:**
@@ -213,6 +224,8 @@ A foundational UX pattern that differentiates [AppName] from every competitor.
 - **Counters** (multiple named counters — see §6.6)
 
 **Status pipeline:** A clear kanban-style status flow (To do → In progress → Finished). Custom statuses are deferred to a later phase.
+
+> **🔴 Open question:** Should the pipeline include a fourth status for started-but-set-aside projects (à la Ravelry's "Hibernating")? Affects the Ravelry import mapping. See §10 Open Decisions #15.
 
 **Notes vs. session notes distinction:** Project notes are a persistent scratchpad for the project as a whole. Session notes are timestamped log entries — think of them as a work journal for that project. Both are accessible from the project detail view.
 
@@ -359,7 +372,7 @@ Sync is a **free, core feature** — not a paid add-on.
 - Basic search and filtering
 - Multiple named counters per project
 - Ravelry import
-- Limited image storage *(specific limit TBD — see §10 Open Decisions)*
+- Limited image storage *(specific limit TBD — cost is negligible at any realistic number, see §10 Open Decisions #6)*
 - Apple Watch counter (Phase 3)
 - Home screen widgets (Phase 3)
 - Lock-screen / Live Activity counters (Phase 3)
@@ -420,15 +433,16 @@ These items must be resolved before development begins. Flagged for founder alig
 | 3 | **Desktop timing** | ✅ RESOLVED — Phase 2 | — |
 | 4 | **Phase 3 platform additions** | ✅ RESOLVED — Apple Watch, lock screen widgets, Live Activity in Phase 3; Android as fast-follow to MVP | — |
 | 5 | **v1 scope: inventory-first** | ✅ RESOLVED — inventory-first (stash/tools/projects/pins + sync) | — |
-| 6 | **Free tier image storage limit** | 🔴 OPEN — suggest 100 images or ~500MB | Both |
+| 6 | **Free tier image storage limit** | 🟡 RESEARCHED (2026-07-21) — cost is a non-factor at any number under discussion: even 500MB/free-user costs ~$0.01/user/month at current compressed-image pricing. Set the limit for product-shape/upsell-psychology reasons, not infrastructure math. Details: `plans/image-storage-cost-research.md`. Still needs a founder decision on the actual number | Both |
 | 7 | **Subscription pricing** | 🔴 OPEN — ~$3.99–4.99/mo; consider annual option | Both |
 | 8 | **Unauthenticated browsing** | ✅ RESOLVED — account required even for free tier; no sign-in-free usage supported | — |
-| 9 | **QR / barcode scanner for yarn & tools** | 🔴 OPEN — research required: (1) reliable open yarn UPC/QR database options; (2) Ravelry API barcode lookup capability; (3) 3rd party scanning tools. If no solid solution, defer to Phase 2 | Diana (technical research) |
+| 9 | **QR / barcode scanner for yarn & tools** | 🟡 RESEARCHED (2026-07-18) — (1) no yarn-specific UPC database exists; generic ones (UPCitemdb etc.) cover big-box brands only and return unstructured names; (2) Ravelry API has **no** barcode lookup; (3) scanning itself is free/built-in (expo-camera). **Recommendation: defer to Phase 2** per the documented fallback, designed as scan → our own barcode↔yarn mapping table (grows with use) → UPC-API fallback → pre-fill the yarn lookup flow. Details: `plans/ravelry-api-research.md` | Diana (technical research) |
 | 10 | **Adaptive language / dynamic forms research** | 🔴 OPEN — research how craft-adaptive terminology and dynamic form patterns work in practice across yarn suggestion flows (e.g., how do fields change based on stash selection vs. craft type selection?) | Both |
 | 11 | **Custom project statuses** | ✅ RESOLVED — deferred to a later phase; MVP ships with To do / In progress / Finished only | — |
 | 12 | **Ravelry API research** | 🔴 OPEN — research what endpoints and data the API supports, OAuth flow, rate limit details, and commercial licensing fee if app generates revenue | Diana (technical research) |
 | 13 | **2FA / account verification** | 🔴 OPEN — decide: no 2FA at launch, optional email/SMS verification code, or optional TOTP authenticator app | Both |
-| 14 | **Infrastructure & feature costs** | 🔴 OPEN — quantify: (1) Ravelry commercial API cost at scale, (2) image storage cost per user at free tier volume, (3) AI/OCR API cost per user at $3.99–4.99/mo price point | Both |
+| 14 | **Infrastructure & feature costs** | 🟡 PARTIALLY RESOLVED — (1) ✅ Ravelry API: no commercial fee exists (`plans/ravelry-api-research.md`); (2) ✅ image storage: negligible at any realistic scale, ~$7/mo fleet-wide at 10K users, real cost "step" is platform tier ceilings ($25/mo Supabase Pro or Cloudflare R2's free 10GB) not per-GB pricing (`plans/image-storage-cost-research.md`); (3) 🔴 OPEN — AI/OCR API cost per user still unresearched | Both |
+| 15 | **"Paused" project status** | 🔴 OPEN — should the MVP status pipeline include a fourth status for projects that are started but deliberately set aside (à la Ravelry's "Hibernating")? Fiber artists routinely park WIPs, and the Ravelry import surfaces this directly: Hibernating (and Frogged) projects currently have no clean landing spot in To do / In progress / Finished, forcing a lossy mapping in the import preview. Options: (1) ship MVP with a fourth "Paused"/"Hibernating" status, (2) map to In progress with a note and revisit with custom statuses (see #11), (3) map to To do with a note | Both |
 
 ---
 

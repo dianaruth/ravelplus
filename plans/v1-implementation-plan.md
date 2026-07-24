@@ -1,60 +1,49 @@
-# RavelPlus — v1 Implementation Plan
+# RavelPlus (working title) — v1 Implementation Plan
+
+> **Revision note (2026-07-18):** This plan supersedes the earlier "RavelPlus as a Ravelry web front-end" plan (see git history for the original). The product direction pivoted at the July 12 founder sync — see `docs/Product Requirements.md` (PRD v0.2). The app is now a standalone, craft-adaptive fiber-arts companion (stash / tools / projects / pins / counters) built **React Native + Expo, mobile and tablet first, iOS first**, with offline-first sync on Supabase. The Ravelry API's role shrank from live data source to one-time import. The app name is still open (PRD §10 #1); "RavelPlus" remains the working title and repo name.
 
 ## Context
 
-Ravelry is the dominant knitting/crochet pattern database but has significant UX debt: poor search filtering, very poor mobile experience, and a cluttered UI. RavelPlus is a personal-use reimagining of Ravelry that uses the official Ravelry API as its data source, adds a polished mobile-first interface, and stores user-specific data (queue, library, favorites) in the user's own account. Starting as a friends-only app with a path to grow.
+Per the PRD: a universal fiber-arts companion app for crocheters and knitters — one place to manage stash, tools, projects, inspiration (pins), and in-progress counters, with free offline-first cross-device sync. Not a Ravelry replacement; the app Ravelry users wish they had alongside it. MVP scope is PRD §5.1; personas are PRD §3.
 
 **Collaborators:**
 - **Diana** — lead software engineer, owns all technical decisions
-- **Sheryl** — senior UX designer (also new to crocheting), owns product/UX decisions and will write the PRD
+- **Sheryl** — senior UX designer, owns product/UX decisions and the PRD
 
 ---
 
 ## Cost Discipline
 
-**Rule:** Everything in v1 must be free. Any service or feature that risks paid usage must be flagged before adoption.
+**Rule (PRD §4.4):** All tooling and services run on free tiers; the CI/CD pipeline target is $0. Paid services require an explicit joint decision.
 
-### Free-tier audit (as of 2026)
+### Free-tier audit (as of 2026-07 — re-verify each limit at adoption time)
 
 | Service | Free tier | Notes |
 |---|---|---|
-| Supabase (Postgres DB) | 500 MB database, 2 projects, 5 GB egress/month | Safe for v1 — relational data is tiny. Pauses after 1 week inactivity (fine for active dev). |
-| Cloud Run (Next.js hosting) | 2M requests/month, 360k vCPU-seconds | Far under — friend group traffic is negligible |
-| Supabase Auth | 50,000 monthly active users | Bundled with the Supabase project; no credit card. Far under for a friend group. |
-| Google Cloud Logging | 50 GiB/month of logs | Safe |
-| Sentry | 1 user, 5k errors/month | Safe — only Diana needs access |
-| Ravelry API | Free for personal/dev keys | Safe — 1 req/sec rate limit |
-| GitHub | Free private repos | Safe |
-| Playwright, Jest, RTL, Tailwind, Drizzle | Open source | Safe |
+| Supabase (DB + Auth + Storage + Realtime + Edge Functions) | 500 MB DB · 1 GB storage · 5 GB egress/mo · 50K MAU auth · 500K edge invocations/mo · 200 concurrent realtime connections | Covers MVP scale. Pauses after 1 week idle (fine during active dev). **1 GB storage is the first real ceiling** — see image storage note below. |
+| Expo EAS (Build / Submit / Update) | ~30 cloud builds/mo, EAS Submit included, EAS Update ~1K MAU | Enough for MVP cadence if we don't build on every commit. **Verify current limits before Phase 0.** |
+| GitHub (repo + Actions) | 2,000 Actions min/mo on private repos | ⚠️ macOS runners bill 10×, Windows 2× — stay on `ubuntu-latest` only. |
+| Sentry (React Native SDK) | 1 user, 5K errors/mo | Only Diana needs dashboard access. |
+| RevenueCat (subscriptions) | Free up to $2.5K/mo tracked revenue | Standard choice for RN in-app subscriptions; free tier far exceeds MVP needs. |
+| Ravelry API | Free (Pro account, no charge); no published rate limit — we self-impose 1 req/sec | ✅ R2 resolved (2026-07-18): **no commercial fee exists** in the current license agreement — see `plans/ravelry-api-research.md`. Real constraint is discretionary revocation risk, not cost; import stays a non-load-bearing feature. |
+| Jest, RN Testing Library, Maestro, Drizzle, Tailwind-equivalent (NativeWind) | Open source | Safe. |
 
-### ⚠️ The one gotcha: Cloud Run / App Hosting requires the Blaze plan
+### ⚠️ The two unavoidable costs (flagged, not free)
 
-Firebase App Hosting (which runs Next.js on Cloud Run under the hood) requires the project to be on the **Blaze (pay-as-you-go)** plan, which requires a credit card. Blaze includes a generous free quota; staying under it means a $0 bill.
+1. **Apple Developer Program — $99/year.** ✅ **RESOLVED (2026-07-18): approved — Diana pays out of pocket.** Required for TestFlight and App Store distribution. Early development still runs $0 via Expo Go on physical iPhones; enrollment becomes necessary **before the first TestFlight build goes to Sheryl** (no rush to enroll earlier).
+2. **Google Play — $25 one-time** when the Android fast-follow ships.
 
-| Service (Blaze) | Free quota | Realistic v1 usage |
-|---|---|---|
-| Cloud Run (Next.js SSR) | 2M requests/month, 360k vCPU-seconds | Far under |
-| Cloud Build (deploys) | 120 build-minutes/day | Far under |
-| Cloud Storage (build artifacts) | 5 GB | Safe |
+Everything else stays $0. **GCP/Firebase is dropped entirely** — no Next.js server means no Cloud Run, no Blaze plan, no GCP credit card. Server-side logic lives in Supabase Edge Functions.
 
-**Supabase** is separate from GCP billing — its free tier requires no credit card at all.
+### Image storage pressure point (feeds PRD §10 #6/#14 — ✅ researched 2026-07-21, see `plans/image-storage-cost-research.md`)
 
-**Mitigation:** Set a hard GCP billing alert at **$1** during setup. Set Cloud Run `maxInstances` low to prevent runaway scaling.
+**Per-GB cost is a non-issue.** At ~200 KB/compressed image, even a 10,000-image extreme case costs ~$0.05/month; fleet-wide at 10K users averaging 30 MB each it's ~$7/month. The proposed >5-images-per-project paywall gate can't be justified as cost recovery on this basis — if kept, it's a product/upsell decision, not a cost-control one.
 
-### Decision (locked)
+**The real cost step is a platform tier ceiling, not per-GB pricing:** Supabase free tier = 1 GB total storage (~5,000 compressed images across all users) — fine for the friends-scale beta. The next step is **Supabase Pro at $25/month flat** (includes 100 GB), which is the actual first infrastructure-spend trigger, arriving around ~50 heavy users. Alternative if/when that's reached: move images specifically to **Cloudflare R2** (10 GB free forever, zero egress fees, $0.015/GB after) — a contained migration since images are addressed by storage path.
 
-- **Database/Auth:** Supabase free tier (no credit card).
-- **Hosting:** Firebase App Hosting on Blaze with a $1 GCP billing alert (email at 50/90/100%). Realistic monthly cost $0.
-- **Cloud Run `maxInstances`** capped low as a safeguard.
-
-### Future enhancements with cost implications (flagged in advance)
-
-| Future feature | Cost concern |
-|---|---|
-| **v2 — Algolia search** | Free tier is 10k records / 10k ops/month. Ravelry's pattern catalog is far larger; we'd be using Algolia for the *subset we sync*, but this needs careful design to stay free. Will re-evaluate when v2 is planned. |
-| **v3 — iOS App Store** | Apple Developer account is **$99/year**. Not free. Flagged for the v3 decision. |
-| **Sentry team access** | Adding Sheryl as a Sentry user requires paid plan ($26/user/month). Will use GCP Error Reporting if she ever needs error access. |
-| **Firebase Test Lab** | Free tier limited; we're using Playwright instead so this isn't a concern. |
+Implications:
+- Client-side compression/resizing before upload remains **mandatory from day one** (e.g., 1600px long edge, ~75% JPEG) — this is what keeps the per-GB math negligible in the first place.
+- The free-tier per-user image cap (open decision #6) should be set generously for product-shape/UX reasons — cost does not meaningfully constrain the number.
 
 ---
 
@@ -62,18 +51,38 @@ Firebase App Hosting (which runs Next.js on Cloud Run under the hood) requires t
 
 | Layer | Choice | Rationale |
 |---|---|---|
-| Frontend | Next.js 14 (App Router, TypeScript) | SSR/SSG, SEO, shares ecosystem with React Native for future iOS |
-| Styling | Tailwind CSS | Mobile-first utility classes, fast to iterate |
-| Auth | Supabase Auth | Native to our Postgres; enables **Row Level Security** (DB-enforced per-user access, not app-enforced). Free for 50k MAU, no credit card. **Shares an identity model with theStashBook** (also Supabase Auth), so future integration is a JOIN rather than an identity bridge. |
-| Database | Supabase (Postgres) | Relational — models the pattern/yarn/collection many-to-many domain natively. Free tier needs no credit card. **theStashBook already runs on Supabase**, so future integration is dramatically simpler. |
-| ORM | Drizzle | TypeScript-native, lightweight, serverless-friendly (HTTP driver, no connection-pool issues). Type-safe schema + migrations. |
-| API proxy | Next.js Route Handlers | Ravelry API key stays server-side in the Next.js server env. No separate Cloud Functions project needed — Next.js on Cloud Run is a real server. |
-| Hosting | Firebase App Hosting (Cloud Run) | GCP-native Next.js deployment via GitHub integration. Runs on Cloud Run under the hood. **Note:** the older "Firebase Hosting frameworks experiment" is closed — App Hosting is the current path. |
-| Future iOS | React Native / Expo | Shares types and API client code with Next.js |
+| App framework | React Native + **Expo** (latest SDK), TypeScript strict | PRD-resolved decision. Expo gives managed builds (EAS), OTA updates, and the OS-integration path (widgets, Live Activity, Watch) for Phase 3. |
+| Web target | **Enabled from day one** (react-native-web) | Two payoffs: (1) `expo start` → `w` gives a browser dev loop with React DevTools — Diana's primary daily surface for UI/CRUD work (she's web-experienced and on Windows with no iOS Simulator); (2) Phase 2 desktop web becomes "polish and host what already runs," not a new build-out. |
+| Navigation | expo-router | File-based routing; deep links for free (needed for PRD §6.8 filter-state deep-linking). |
+| Styling | NativeWind (Tailwind for RN) + custom design tokens | Keeps the Tailwind mental model; Sheryl's tokens map to a theme config. Component styling stays fully owned (no heavy UI kit). |
+| Local database | **SQLite via expo-sqlite, accessed through Drizzle** | Offline-first requires a real local DB. Drizzle's expo-sqlite driver gives typed queries + `useLiveQuery` reactivity. |
+| ORM / migrations | **Drizzle, double duty** | One set of TypeScript schema definitions; drizzle-kit manages Postgres migrations (remote) and SQLite migrations (on-device). Maximizes schema symmetry between local and cloud. |
+| Backend | Supabase (Postgres + Auth + Storage + Realtime + Edge Functions) | PRD-recommended. RLS for per-user isolation; Realtime for live cross-device updates; Storage for images; Edge Functions for the Ravelry import worker and RevenueCat webhook. |
+| Auth | Supabase Auth — Sign in with Apple, Google, email+password | PRD §6.10. Apple sign-in is mandatory on iOS when other social logins are offered. |
+| Sync engine | 🔬 **Research spike R1 — not yet locked** | Candidates and criteria below. The PRD requires better-than-document-LWW conflict handling; this is the highest-risk technical decision in the plan. |
+| Subscriptions | RevenueCat + StoreKit | Receipt validation, entitlements, and cross-platform readiness without building billing infrastructure. |
+| Error tracking | Sentry (`@sentry/react-native`) | Free tier; wired in Phase 1. |
+| E2E testing | Maestro | Free, YAML-driven, first-class Expo support. (Playwright returns in Phase 2 for desktop web.) |
 
-**Why this stack:** The domain is relational (patterns ↔ yarn ↔ projects ↔ collections are many-to-many; the yarn-suggestion feature is a join). Postgres models it natively where Firestore would force denormalization and app-side join logic. Using Next.js Route Handlers instead of Cloud Functions removes an entire service. Compute stays on GCP (Cloud Run); the database is a managed Postgres URL that can move to Cloud SQL later if ever desired.
+**Why this stack:** The domain is relational (stash ↔ projects ↔ pins ↔ tools are many-to-many; auto-population joins against a shared yarn catalog), so Postgres + a mirrored local SQLite models it natively. Expo is the only realistic path to iOS-first development from a Windows machine (below). Everything server-side fits in Supabase, collapsing the old two-cloud (GCP + Supabase) footprint into one.
 
-**Portability:** Compute and data are cloud-agnostic — the app is a standard container; the DB is standard Postgres. The one deliberate coupling is auth: Supabase Auth ties login/session to Supabase's GoTrue and RLS policies to Postgres. This is an accepted trade: since the database is already committed to Supabase, auth portability protects a cheap-to-migrate layer, while Supabase Auth buys RLS, less code, and the theStashBook join today. If we ever leave Supabase we're moving the DB regardless, at which point re-doing auth is a rounding error.
+### Phase 2 web/desktop readiness — day-one rules
+
+The Phase 2 web app is intended to be **feature-rich and desktop-native in feel, not a scaled-up phone UI**. One codebase constrains shared *logic*, not shared *layouts* — Metro resolves `component.web.tsx` per platform, web files may use any DOM/web library, and expo-router allows web-only routes. Candidates for web-divergent presentation: multi-pane stash browse (list + detail side by side), drag-and-drop project kanban, always-visible filter facets, bulk edit / CSV import-export, hover previews on the pins masonry, keyboard shortcuts, printable views.
+
+Rules that start in Phase 1 so this stays cheap:
+
+1. **Web target enabled in the scaffold** and kept building (CI runs the web bundle) — web never bit-rots into a Phase 2 rescue project.
+2. **All logic lives in shared hooks/lib** — platform-divergent files are thin presentation over the same queries/sync/registry. Enforced in code review.
+3. **Every library adoption gets a web-compat check** before it lands (e.g., FlashList's web support is newer — verify at adoption). A native-only library is acceptable only behind a platform file with a web fallback.
+4. The MVP's phone (bottom tabs) vs tablet (sidebar) split — PRD §8 — establishes the "same data, different shell" architecture early; web becomes a third shell, not a new concept.
+
+### Development environment reality (Diana is on Windows)
+
+- **No iOS Simulator on Windows.** The daily write-code-see-result loop runs **in the browser** (web target, hot reload, React DevTools) — a familiar web DX — with **Expo Go on a physical iPhone** as the continuous native check (and an Android emulator for layout spot-checks). The browser never substitutes for on-device verification; it complements it.
+- **iOS binaries are built in the cloud by EAS Build** — no Mac required for building or submitting to TestFlight.
+- Expo Go covers the MVP feature set (expo-sqlite, supabase-js, expo-camera for the barcode spike, expo-image-picker). The switch to a **custom dev build** happens only when a config-plugin/native module forces it — at that point device installs need the paid Apple account.
+- Consequence: **iOS-specific bugs surface on-device, late.** Mitigation: test on the physical iPhone continuously, not at phase-end.
 
 ---
 
@@ -81,440 +90,249 @@ Firebase App Hosting (which runs Next.js on Cloud Run under the hood) requires t
 
 ```
 ravelplus/
-├── plans/                     # Plans and PRDs live here
-├── docs/                      # Tech-stack reference (resources.md)
-├── apps/
-│   └── web/                   # Next.js app (the whole app — no separate backend)
-│       ├── app/
-│       │   ├── (auth)/        # Login page
-│       │   ├── api/
-│       │   │   └── ravelry/   # Ravelry proxy route handlers (search, [id])
-│       │   ├── patterns/      # Search + detail pages
-│       │   └── me/            # Queue, Library, Favorites
-│       ├── components/
-│       │   └── ui/            # shadcn/ui components
-│       ├── lib/
-│       │   ├── supabase/      # Supabase clients (browser, server, middleware)
-│       │   ├── ravelry.ts     # Server-side Ravelry API client
-│       │   └── collections.ts # Drizzle queries for queue/library/favorites
-│       ├── db/
-│       │   ├── schema.ts      # Drizzle schema (saved_patterns; auth.users is managed by Supabase)
-│       │   └── index.ts       # Drizzle client (Supabase connection)
-│       ├── drizzle/           # Generated migrations
-│       └── types/             # Shared TypeScript types
-├── e2e/                       # Playwright tests
-├── apphosting.yaml            # Firebase App Hosting config
-└── package.json               # Root workspace (npm workspaces)
+├── plans/                      # Plans and PRDs
+├── docs/                       # Tech-stack reference (resources.md — needs matching overhaul)
+├── app/                        # expo-router routes
+│   ├── (auth)/                 # Sign-in screens
+│   ├── (tabs)/                 # Stash / Tools / Projects / Pins / Profile
+│   │   ├── stash/
+│   │   ├── tools/
+│   │   ├── projects/           # includes [id] detail w/ counters, notes, session log
+│   │   └── pins/
+│   └── import/                 # Ravelry import flow
+├── components/
+│   ├── ui/                     # Owned primitives (buttons, sheets, combobox, etc.)
+│   └── forms/                  # Craft-adaptive form system
+├── lib/
+│   ├── supabase.ts             # Supabase client (auth-aware)
+│   ├── sync/                   # Sync engine (outcome of spike R1)
+│   ├── crafts/                 # Craft-adaptive field registry (see below)
+│   └── purchases.ts            # RevenueCat wrapper
+├── db/
+│   ├── schema.ts               # Drizzle schema — single source of truth
+│   ├── local.ts                # expo-sqlite Drizzle client
+│   └── migrations/             # drizzle-kit output (postgres + sqlite)
+├── supabase/
+│   ├── functions/              # Edge Functions: ravelry-import, revenuecat-webhook
+│   └── migrations/             # RLS policies, triggers (SQL applied via supabase CLI)
+├── e2e/                        # Maestro flows (.yaml)
+├── eas.json                    # EAS Build profiles (dev / preview / production)
+└── package.json
 ```
-
-**Note:** `functions/`, `firebase.json`, and `firestore.rules` from the earlier scaffold are removed — no longer needed.
 
 ---
 
-## v1 Feature Scope
+## Data Model (Postgres, mirrored to SQLite)
 
-> **Note:** UX details (filter layouts, empty states, collection flows, navigation patterns) are Sheryl's call and will be informed by her PRD. Implementation below describes the technical shape; visual/interaction design defers to Sheryl.
+**Supabase-managed:** `auth.users`. All user tables reference it via `user_id uuid references auth.users(id) on delete cascade` and carry RLS `using (auth.uid() = user_id)`.
 
-### 1. Auth (Supabase Auth)
-- **Providers for v1:** Google OAuth + email/password. Additional providers (GitHub, Apple, magic links, etc.) are config-only changes in the Supabase dashboard — no data model changes.
-- **Identity storage:** Supabase's managed `auth.users` table. Our own tables reference users via `user_id uuid references auth.users(id)`.
-- **Access control:** **Row Level Security (RLS)** — every user-data table gets a policy `using (auth.uid() = user_id)`. The database itself refuses to return rows that aren't the caller's, regardless of what a query says. A forgotten filter returns nothing instead of leaking everything. This moves the security boundary from "every developer remembers to filter, forever" to "enforced once, centrally."
-- **Clients:** `@supabase/ssr` for server components / route handlers / middleware (cookie-based sessions). Drizzle is used for schema, migrations, and privileged/complex queries; user-scoped reads go through the RLS-aware Supabase client so `auth.uid()` is set.
-- Protected routes via Next.js middleware (refreshes the Supabase session, redirects unauthenticated users from `/me/**`).
-- `/login` page — visual design TBD by Sheryl.
+**User data tables (per-user, synced):**
 
-**Why Supabase Auth (not Auth.js):** The DB is already committed to Supabase, so "auth portability" protects a layer that's cheap to migrate anyway. Supabase Auth instead buys three things now: (1) RLS — DB-enforced access control rather than app-side `where user_id = ...` discipline on every query; (2) less code — hosted OAuth/MFA/magic links vs. wiring providers ourselves; (3) **theStashBook integration becomes a cross-schema JOIN** under one identity instead of an identity-bridge between two auth systems. The v1.1 yarn-suggestion feature is literally a join against Sheryl's stash data — shared Supabase Auth erases its hardest part before we write a line.
+- `yarn_stash` — brand, name, color_name, dye_lot, weight (enum lace0–jumbo7), grams_per_skein, yards_per_skein, skeins (default 1), remaining_grams, gauge_stitches / gauge_unit, hook_needle_size_mm, care_methods (join table), country_of_origin, source_url, notes, ravelry_yarn_id (nullable — provenance from Ravelry lookup or import)
+- `yarn_stash_fibers` — (stash_id, fiber, percent) — the "80% wool / 20% nylon" multi-select
+- `tools` — name, type (enum incl. needle subtype), brand, size_mm, material, notes
+- `projects` — name, craft_type, designer, pattern_url, status (todo/in_progress/finished), difficulty, start_date, finish_date, notes
+- `project_yarns`, `project_tools` — join tables, `on delete cascade` from the stash/tool side (PRD: deleting a stash item removes references)
+- `session_notes` — (project_id, body, created_at) — the timestamped work journal
+- `counters` — (project_id, name, count, target_count) — synced in real time
+- `pins` — name, designer, source_url, craft_type, difficulty, notes, pushed_to_project_id (nullable — the "pushed to projects" marker)
+- `pin_yarns`, `pin_tools` — join tables
+- `entity_images` — (owner table + id, storage_path, position) — one image pipeline for all entities; caps (3 stash / 5 project / 5 pin) enforced in app + DB trigger
+- `attachments` — project files/PDFs (storage_path, filename, mime)
+- `profiles` — display name, settings, theme override
+- `subscriptions` — entitlement state, written **only** by the RevenueCat webhook Edge Function (service role)
 
-**Accepted trade-off:** Supabase Auth couples login/session UX to Supabase's hosted GoTrue, and RLS policies are Postgres/`auth.uid()`-specific. For a friends-only app this is a remote risk and the policies are ~5 lines per table.
+**Shared/global tables (read-only to users, no user_id):**
 
-### 2. Pattern Search & Browse (Core v1 priority)
-**Improvements over Ravelry:**
-- Filters visible on mobile (interaction pattern TBD by Sheryl)
-- Instant URL-synced filter state (shareable search URLs)
-- Cleaner results grid
-- Filter by: craft (knitting/crochet), yarn weight, category, difficulty, free/paid, language
+- `yarn_catalog` — brand + yarn name → default weight, fiber makeup, yards/grams per skein, known colorways. Powers the auto-population combobox (PRD §6.2) alongside **live Ravelry lookup** (decision 2026-07-18, see `plans/ravelry-api-research.md` §Yarn lookup design): the combobox merges our catalog with user-initiated `yarns/search` results; picking a Ravelry match writes attributes into the *user's own stash row* (+ `ravelry_yarn_id` provenance) — **never into the shared catalog**. Catalog rows come only from user-created entries and manual/open-data seeding (community contribution later). ⚠️ Bulk-seeding or caching Ravelry data in the catalog is prohibited (license clause 1i) unless Ravelry blesses it via api@ravelry.com. Ravelry lookup is an online-only enhancement — offline stash-add degrades to manual fields (flag the degraded state to Sheryl for design).
 
-**Technical implementation:**
-- `/patterns` — search page with filter panel + results grid
-- Next.js Route Handler `GET /api/ravelry/search` proxies `api.ravelry.com/patterns/search.json` (server-side, API key from env)
-- Debounced search-as-you-type with loading skeletons
-- `usePatternSearch` hook handles query state, pagination, and URL sync
+**Sizes are stored normalized (mm)** and formatted per craft at the display layer — US letter hooks vs US-number needles is presentation, not storage. This is what lets a future craft type ship without schema changes (PRD §6.1).
 
-### 3. Pattern Detail Page
-- `/patterns/[id]` — photo carousel, description, yarn requirements, needle sizes, difficulty, free/paid badge
-- Next.js Route Handler `GET /api/ravelry/[id]` proxies `api.ravelry.com/patterns/:id.json`
-- Add to Queue / Library / Favorites (authenticated only)
-- Links to purchase/download on Ravelry
+**Free-tier project cap (15):** enforced by a Postgres trigger checking `subscriptions` entitlement on insert — never client-only. Client mirrors the check for friendly UX.
 
-### 4. Queue / Library / Favorites
-**Replicate Ravelry's 3-list model:**
-- **Queue** — patterns the user plans to make
-- **Library** — patterns the user owns (purchased/downloaded)
-- **Favorites** — patterns the user loves but hasn't committed to
-
-**Technical implementation:**
-- Stored in Postgres `saved_patterns` table, one row per (user, pattern, list)
-- `/me/queue`, `/me/library`, `/me/favorites` pages
-- `useCollection(listType)` hook → Server Actions backed by Drizzle queries in `lib/collections.ts`
-- Optimistic UI updates
-- Move-between-lists = update the `list_type` column — interaction pattern TBD by Sheryl
+**Sync metadata:** every synced table carries `updated_at`, `deleted_at` (soft delete for offline tombstones), and whatever change-tracking spike R1 dictates (per-field timestamps live in a companion changes table if we build custom).
 
 ---
 
-## Data Model (Postgres / Drizzle)
+## Offline-First Sync — Research Spike R1 (highest-risk decision)
 
-**Supabase-managed:** `auth.users` (and related auth schema) — owned by Supabase Auth, not declared in our Drizzle schema. Our tables reference it via `auth.users(id)`.
+PRD §6.9 requirements: local-first writes, background queue, realtime propagation, **per-field LWW merge** (not document-level), conflict notification on same-field collisions, images in the same pipeline, error-only sync surfacing.
 
-**App tables:**
+**Candidates to evaluate (in order):**
 
-```sql
--- saved_patterns: one row per pattern saved to one of a user's lists
-saved_patterns (
-  id            uuid primary key default gen_random_uuid(),
-  user_id       uuid not null references auth.users(id) on delete cascade,
-  ravelry_id    text not null,              -- Ravelry pattern id
-  list_type     text not null,              -- 'queue' | 'library' | 'favorites'
-  name          text not null,              -- denormalized for fast list rendering
-  thumbnail_url text,
-  notes         text,
-  added_at      timestamptz not null default now(),
-  unique (user_id, ravelry_id, list_type)
-)
-```
+1. **PowerSync** — purpose-built Postgres↔SQLite sync with Supabase integration; handles the queue, checkpoints, and reconnection. Check: free-tier/self-host terms, whether its conflict model can express per-field merge, Expo compatibility.
+2. **Custom sync layer** on expo-sqlite + Drizzle: outbox table of field-level changes, push via supabase-js (RLS-enforced), pull via `updated_at` cursors, realtime channel for live nudges. Full control of the merge policy; most engineering effort; most honest fit to the PRD's conflict spec.
+3. **WatermelonDB / Legend-State** — evaluated mainly to reject or confirm quickly; both need meaningful backend glue to reach the PRD's conflict spec.
 
-**Access control via RLS** — enable on every user-data table:
+**Decision criteria:** meets per-field merge · $0 at MVP scale · works in Expo (Go or dev build?) · **works on web** (expo-sqlite's WASM/OPFS support or a vendor web SDK — Phase 2 desktop web is committed, so a native-only engine is disqualifying) · RLS enforced on the sync path · handles images/attachments or coexists with a separate upload queue · battery/bandwidth sanity for the multi-device live-edit case (PRD flagged this research too).
 
-```sql
-alter table saved_patterns enable row level security;
-create policy "own rows" on saved_patterns
-  for all using (auth.uid() = user_id) with check (auth.uid() = user_id);
-```
+**Spike deliverable:** a throwaway two-device demo syncing `counters` (smallest, highest-frequency entity) offline→online, plus a one-page decision writeup. **Timeboxed; blocks Phase 3, not Phases 0–2.**
 
-The database enforces per-user isolation, so a missing `where user_id = ...` returns nothing rather than leaking other users' rows. User-scoped reads go through the RLS-aware Supabase client (carries the JWT so `auth.uid()` resolves); Drizzle is used for migrations and any privileged/service-role queries.
-
-**Why relational pays off later:** v1.1 stash/yarn tables (`yarn_stash`, `projects`, `project_yarns` join table) and the yarn-suggestion join slot in naturally here — no denormalization gymnastics.
+**→ Full architecture explanation and step-by-step spike plan (candidate order, 9-scenario pass/fail test matrix, timebox): `plans/sync-architecture-r1.md`.**
 
 ---
 
-## Ravelry Proxy (Next.js Route Handlers)
+## Server-Side Logic (Supabase Edge Functions)
 
-All Ravelry API calls go through server-side Route Handlers — the API key (env var) never reaches the browser. Each handler checks the Supabase session before proxying. No separate backend service.
+No app server. Three functions:
 
-| Route Handler | Proxies |
+| Function | Purpose |
 |---|---|
-| `GET /api/ravelry/search` | `GET /patterns/search.json` |
-| `GET /api/ravelry/[id]` | `GET /patterns/:id.json` |
-| `GET /api/ravelry/yarn/search` | `GET /yarns/search.json` *(v1.1)* |
+| `ravelry-import` | OAuth handshake with Ravelry + the rate-limited (1 req/sec) import worker. Fetches stash/tools/projects, maps to our entities, returns a preview payload; commits on user confirm. Long imports run chunked with progress stored in an `import_jobs` table. |
+| `revenuecat-webhook` | Receives entitlement events, writes `subscriptions` with the service role. |
+| `delete-account` | App Store requirement — full account + data deletion. |
 
-Rate limiting: Ravelry allows 1 req/sec per key. The 300ms search debounce keeps us well within it.
-
----
-
-## Design System
-
-**Approach:** Design-first. Phase 2+ UI work is gated on Sheryl's design spec being delivered. Phase 1 scaffold proceeds independently.
-
-**Component library:** [shadcn/ui](https://ui.shadcn.com/) — unstyled Radix UI primitives copied directly into the project (`components/ui/`). Fully owned, fully restyable, free. Pairs with Tailwind CSS. Sheryl can restyle any component without fighting a third-party library.
-
-### What Sheryl needs to deliver before Phase 2
-
-A design spec (Figma, a doc, or equivalent) covering:
-
-| Item | Examples |
-|---|---|
-| Color palette | Primary, secondary, background, surface, error, success — light mode; dark mode optional for v1 |
-| Typography | Font family (Google Fonts preferred — free), size scale (heading levels, body, small), weights |
-| Spacing & border radius | Card radius, button radius, general spacing rhythm |
-| Key screens | Login, pattern search (desktop + mobile), pattern detail, one collection page |
-| Mobile navigation | Bottom tab bar vs. other — her call |
-| Filter panel | Mobile interaction (drawer? inline?) — her call |
-| Add-to-collection flow | Bottom sheet? inline toggle? modal? — her call |
-| Empty states | At least queue, library, favorites empty states |
-| Brand/name | Is "RavelPlus" the name? Does it need a logo or wordmark for v1? |
-
-### How design tokens get implemented
-
-Once Sheryl's palette and typography are decided:
-1. Define CSS custom properties in `apps/web/app/globals.css` (colors, radius, fonts)
-2. Extend `tailwind.config.ts` with the project's named tokens (e.g. `bg-surface`, `text-primary`)
-3. Install shadcn/ui components on top of those tokens — they'll automatically inherit the design
-4. Any component that needs restyling gets updated in `components/ui/`
-
-This means Sheryl can hand off a palette and we wire it in one afternoon — no component-by-component reskin.
+The Ravelry API key/secret live in Edge Function secrets — never in the app bundle.
 
 ---
 
-## Build Sequence
+## Craft-Adaptive Forms (PRD §6.1 — the differentiator)
 
-### Phase 0 — Design spec (Sheryl, parallel to Phase 1)
-- Sheryl delivers design spec covering the items above
-- **Gate:** Phase 2+ UI work does not start until spec is received
-- Diana can proceed with Phase 1 scaffold in parallel
+Architecture: a **TypeScript field registry** in `lib/crafts/`, not per-craft DB schemas.
 
-### Phase 1 — Project scaffold *(needs rework — see note)*
-1. Root `package.json` with npm workspaces ✓ (keep)
-2. `npx create-next-app` in `apps/web` (TypeScript + Tailwind + App Router) ✓ (keep)
-3. **Remove** earlier Firebase artifacts: `functions/`, `firebase.json`, `firestore.rules`
-4. **TODO:** Create Supabase project; add `DATABASE_URL` + `NEXT_PUBLIC_SUPABASE_URL` + `NEXT_PUBLIC_SUPABASE_ANON_KEY` to `apps/web/.env.local`
-5. **TODO:** Install Drizzle + `drizzle-kit` and `@supabase/ssr`; create `db/schema.ts` + `db/index.ts`; run first migration
-6. **TODO:** Create Firebase project, upgrade to Blaze, set $1 billing alert, connect repo via App Hosting
-7. **TODO:** Deploy a Hello World to App Hosting to confirm the pipeline
-
-### Phase 2 — Auth
-1. Install `@supabase/ssr`; create browser/server/middleware Supabase clients in `lib/supabase/`
-2. Enable Google OAuth + email/password in the Supabase dashboard; configure redirect URLs
-3. `/login` page (Google + email/password) + auth callback route handler
-4. `middleware.ts` to refresh the Supabase session and protect `/me/**` routes
-5. Enable RLS + `auth.uid() = user_id` policies on `saved_patterns`
-
-### Phase 3 — Pattern Search
-1. Route Handler `app/api/ravelry/search/route.ts` (session check + proxy)
-2. `lib/ravelry.ts` server-side API client
-3. `/patterns` page: search input, filter panel, results grid
-4. `PatternCard` component
-5. URL-synced filter state
-
-### Phase 4 — Pattern Detail
-1. Route Handler `app/api/ravelry/[id]/route.ts`
-2. `/patterns/[id]` page
-3. Add-to-collection buttons
-
-### Phase 5 — Collections
-1. `lib/collections.ts` Drizzle queries + Server Actions
-2. `/me/queue`, `/me/library`, `/me/favorites` pages
-3. Optimistic add/remove on pattern detail page
-4. Move-between-lists (update `list_type`)
-
-### Phase 6 — Mobile polish + deploy
-1. Responsive audit (Sheryl's design direction)
-2. Navigation pattern (Sheryl's call — bottom tabs vs. top nav)
-3. Final App Hosting deploy
+- `CraftType` union (`'crochet' | 'knitting'`) drives a registry: for each entity form, a typed config of which fields show, their labels ("hook size" vs "needle size"), unit formatters (mm → US letter vs US number), and option lists.
+- Storage stays craft-neutral (normalized mm, generic counters); adaptation is entirely presentational + validation-level.
+- Adding a craft type = adding a registry entry (+ any new option lists). Zero migrations. This satisfies the PRD's "new craft types without schema rewrites" constraint and is cheap to unit test.
+- The dynamic-forms research item (PRD §10 #10) is about UX behavior (what changes when, stash-selection vs craft-selection interplay) — Sheryl's design spike; the registry architecture accommodates whatever she lands on.
 
 ---
 
-## Future Roadmap (Post-v1)
+## Monetization Infrastructure (MVP scaffolding)
 
-- **v1.1** — Yarn database (search + stash tracking)
-- **v1.2** — Pattern notes / project tracking (WIPs, finished objects)
-- **v2** — Sync Ravelry data into Algolia for faster, more flexible search
-- **v2.5** — Social: follow friends, see their queues
-- **v3** — React Native / Expo iOS app (shares `lib/` types and API client)
-
-### theStashBook Integration (Future Enhancement)
-
-Sheryl's [theStashBook](https://github.com/sheryl-madethis/theStashBook) is a yarn stash + project tracker (vanilla JS, Supabase backend) that is a natural complement to RavelPlus. Potential integration points:
-
-- **Stash-aware pattern search** — filter results by yarn weight/yardage the user already owns
-- **"Start a project" flow** — when queuing a pattern, link yarn from your stash; check if you have enough yardage
-- **Pattern → project bridge** — theStashBook's Pins tab already saves Ravelry pattern URLs manually; this could become a one-click flow from RavelPlus
-- **Yarn suggestions on pattern pages** — given a pattern's yarn requirements (weight, yardage, fiber), surface stash matches ranked by: (1) exact brand/colorway match, (2) same weight + enough yardage, (3) same weight but insufficient yardage (shows how many skeins short). Sheryl's call on the UX — could be a "You might already have this" shelf on the pattern detail page.
-
-**Key data model (theStashBook yarn):**
-```
-{ brand, name, colorName, colorHex, fibers[], weight, yards, skeins, images[], notes }
-```
-Projects already store `patternUrl` (links to Ravelry) and `yarnIds[]` (many-to-many to stash).
-
-**Integration outlook (much improved by the Supabase decision):**
-- **Same database platform.** Both apps now run on Supabase Postgres. Integration could be as deep as a shared Supabase project / shared schema, or as light as cross-querying — no cross-platform data migration needed.
-- **Auth: now unified.** Both apps use Supabase Auth, so a user is one identity across both. The yarn-suggestion feature becomes a cross-schema JOIN (`saved_patterns` ↔ stash under the same `auth.uid()`) rather than an identity-bridge between two auth systems — the biggest integration blocker is gone.
-- theStashBook is a single monolithic HTML file with no API surface — would need refactoring before deep integration.
-- **Recommended path:** When v1.1 stash tracking is built in RavelPlus, model the `yarn_stash` table to mirror theStashBook's yarn fields so the two schemas line up directly.
-
----
-
-## Logging & Error Tracking
-
-| Layer | Tool | Notes |
-|---|---|---|
-| Cloud Run (Next.js server + Route Handlers) | Google Cloud Logging | Automatic — `console.log/warn/error` from the server routes to the GCP console for the Cloud Run service. No setup needed. |
-| Next.js client errors | Sentry | Catches unhandled JS errors, React error boundaries, network failures in the browser. |
-| Next.js server errors | Sentry | Catches App Router server component, Server Action, and Route Handler failures via the Next.js Sentry SDK. |
-
-**Setup:** Add `@sentry/nextjs` to `apps/web` in Phase 2. Sentry's wizard (`npx @sentry/wizard -i nextjs`) wires up source maps and the error boundary automatically. Free tier (1 user, 5k errors/month) is sufficient — only Diana needs access.
-
-**What to log in the Ravelry proxy handlers:** All Ravelry API errors should log `{ status, ravelryId/query, message }` so failures are traceable in Cloud Logging without exposing the API key.
+- RevenueCat SDK + one subscription product (price TBD — PRD §10 #7). Entitlement: `plus`.
+- Gates in MVP: project count > 15, image storage above free cap, saved filter sets. All enforced server-side (trigger/RLS) with client-side friendly messaging.
+- Paywall screen is Sheryl's design; a placeholder ships behind a feature flag until pricing is decided.
+- **Note:** in-app purchases don't work in Expo Go — the RevenueCat integration lands only once we've moved to a dev build, and real purchase testing needs TestFlight sandbox. Sequence this late (Phase 6).
 
 ---
 
 ## Testing Standards
 
-### Unit Tests — Jest + React Testing Library
-
-**Setup:** `jest` + `@testing-library/react` + `@testing-library/user-event` in `apps/web`.
-
-**What to unit test:**
+### Unit — Jest + React Native Testing Library
 
 | Target | Examples |
 |---|---|
-| Custom hooks | `usePatternSearch` (query/filter state, URL sync), `useCollection` (add/remove/move logic, optimistic updates) |
-| Collection queries | `lib/collections.ts` Drizzle queries / Server Actions — run against a local test Postgres (or `pglite` in-memory); assert rows scoped to `user_id` |
-| Route Handlers | `app/api/ravelry/*` — mock `fetch` and the Supabase session; assert correct proxying, auth rejection, error responses |
-| Utility functions | Yarn suggestion matching logic (weight match, yardage calculation) when built |
-| UI components | `PatternCard` renders correctly with given props; filter drawer opens/closes |
+| Craft registry | field visibility/labels/formatters per craft; size conversions (mm↔US letter↔US number) round-trip |
+| Sync logic (if custom) | outbox ordering, per-field merge, tombstone handling — pure functions, heavily tested |
+| Stash intelligence | remaining-grams math, finished-project prompts |
+| Hooks | filter/sort state + deep-link sync, counter logic |
+| Ravelry import mapping | Ravelry JSON fixtures → our entities, mismatch warnings |
+| Drizzle queries | against pglite / local SQLite |
 
-**What not to unit test:** Supabase Auth internals, RLS policies (cover with an E2E test that asserts user A can't read user B's rows), real OAuth flows, third-party UI library components.
+Co-located `*.test.ts(x)`. No coverage %; logic-heavy modules get thorough coverage, snapshots are skipped.
 
-**File convention:** Co-located with source — `component.test.tsx` next to `component.tsx`; `handler.test.ts` next to `handler.ts`.
+### E2E — Maestro
 
-**Coverage target:** No hard % threshold — focus on testing logic-heavy hooks, helpers, and Cloud Function handlers thoroughly. UI snapshots are low value; skip them.
+Small critical-flow suite: sign in → add stash item → create project → link yarn → tap counter → force-offline edit → verify sync on reconnect (once R1 lands). Runs locally against a dev build + local Supabase (`supabase start`). In CI: Android emulator on `ubuntu-latest` only (KVM), **never macOS runners**. Keep under ~5 min; defer CI E2E until flows stabilize (Phase 4+).
 
----
+### RLS verification
 
-### E2E Tests — Playwright
-
-**Setup:** `@playwright/test` at the repo root, running against the Next.js dev server (`localhost:3000`) backed by a local/test Supabase Postgres.
-
-**What to E2E test (critical user flows only):**
-
-| Flow | What it covers |
-|---|---|
-| Auth | Sign up, log in, redirect to `/patterns`, log out |
-| Pattern search | Type a query, apply a filter, verify results update, verify URL reflects filters |
-| Pattern detail | Navigate to a pattern, verify key details render, add to Queue |
-| Collections | Add pattern to Queue from detail page, visit `/me/queue`, verify it appears, remove it |
-| Protected routes | Visit `/me/queue` while logged out, verify redirect to `/login` |
-
-**What not to E2E test:** Every UI state, every filter combination, visual regression. Keep the E2E suite small and fast — it should run in under 2 minutes.
-
-**Test database:** E2E tests run against a dedicated test Postgres (local Supabase via `supabase start`, or a separate free Supabase project) with seeded data, kept isolated from production. Auth state reused across tests via Playwright's `storageState`.
-
-**File location:** `e2e/` at repo root, e.g. `e2e/auth.spec.ts`, `e2e/search.spec.ts`, `e2e/collections.spec.ts`.
+A dedicated test (SQL or supabase-js with two test users) asserting user A cannot read/write user B's rows on every user table. Runs in CI against `supabase start`.
 
 ---
 
 ## CI/CD
 
-**Platform: GitHub Actions.** Native to the repo, best-in-class Playwright support, and free within budget. Everything below stays at **$0**.
+**GitHub Actions, `ubuntu-latest` only, $0.**
 
-### CI — checks on every PR
+- **Every PR:** ESLint → `tsc --noEmit` → Jest → RLS test vs `supabase start`. ~4–6 min. Required status checks; `concurrency: cancel-in-progress`; cache npm + Supabase docker layers.
+- **Builds:** EAS Build (Expo's cloud) — not Actions — on demand, not per-commit, to stay inside ~30 builds/mo. Profiles: `development`, `preview` (internal/TestFlight), `production`.
+- **Distribution to Sheryl:** TestFlight via EAS Submit (post-$99 signoff). Before that, she previews via Expo Go + EAS Update channels ($0).
+- **OTA:** EAS Update for JS-only fixes between store releases; store builds for anything native.
 
-A single workflow on `pull_request` runs four gates, all on `ubuntu-latest`:
+---
 
-| Gate | Command | ~Time |
-|---|---|---|
-| Lint | `eslint` | ~1 min |
-| Typecheck | `tsc --noEmit` | ~1 min |
-| Unit tests | Jest + RTL | ~1 min |
-| E2E | Playwright vs. `supabase start` (local Postgres + RLS) + Next.js dev server | ~2–5 min |
+## Build Sequence
 
-All four are **required status checks** in branch protection — nothing merges red.
+### Phase 0 — Design spec + decisions (Sheryl ∥ Diana)
+- Sheryl: design spec — tokens (color/type/spacing incl. dark mode, WCAG 2.2 AA), key screens (tab bar, stash list+form, project detail w/ counters, pins masonry, filter interaction, empty states), app name direction.
+- Diana: research spike **R1 (sync)**. ~~R2 (Ravelry API audit)~~ ✅ done — `plans/ravelry-api-research.md`. R3 (barcode/QR) can slip to later without blocking.
+- Joint: resolve image cap (#6), pricing ballpark (#7), 2FA stance (#13 — recommend: launch with none; Supabase makes email OTP a config flip later). (Apple Developer $99/yr: already approved.)
+- **Gate:** Phases 2+ UI needs the token set + key screens; Phase 1 proceeds regardless.
 
-**Why E2E in CI is free:** Playwright runs headless browsers *on the runner itself* — it calls no paid service, so it only consumes GitHub Actions **minutes** (same budget as the other jobs). (Note: Microsoft's hosted "Playwright Testing" service on Azure *is* paid — we are **not** using it. Plain `npx playwright test` on a runner is the free path.)
+### Phase 1 — Scaffold
+1. `create-expo-app` (TypeScript strict), expo-router, NativeWind, ESLint/Prettier — **web target enabled** (`expo start` → `w` is the daily dev loop)
+2. Supabase project + local dev (`supabase start`); Drizzle schema v0 (`profiles`, `yarn_stash` + fibers, `entity_images`) migrated to both Postgres and SQLite
+3. RLS policies + the RLS CI test; Sentry; GitHub Actions CI green
+4. Expo Go running on the physical iPhone against local Supabase
 
-**Minute budget:** Private repos get **2,000 Actions min/month** free. A full PR run is ~6–11 min, so ~180–330 runs/month — far beyond a two-contributor project's needs.
+### Phase 2 — Auth
+1. Supabase Auth: Apple + Google + email/password (native flows via `expo-apple-authentication` / Google sign-in; verify Expo Go support — may trigger the dev-build switch)
+2. Session persistence, protected routes, sign-out-preserves-local-data behavior (PRD §6.10)
 
-**Guardrails to stay free (these matter):**
-1. **`ubuntu-latest` only.** macOS bills 10×, Windows 2× against minutes; Linux is 1×. This is the #1 way people accidentally blow the free tier.
-2. **Cache** npm deps, the Playwright browser binaries (`~/.cache/ms-playwright`), and Docker layers for the Supabase images.
-3. **`concurrency: cancel-in-progress`** — a new push to a PR cancels the older run so stale builds don't burn minutes.
+### Phase 3 — Stash + Tools (first real vertical slice)
+1. Craft-adaptive form system + field registry
+2. Stash CRUD: comboboxes (brand/name create-new), fiber multi-select, `yarn_catalog` auto-population, images (compress → upload queue → Storage)
+3. Tools CRUD
+4. Search/filter/sort with deep-link state persistence (PRD §6.8); stash stats view
+5. **Sync engine v1 (from R1)** wired under stash/tools
 
-### CD — production
+### Phase 4 — Projects + Counters
+1. Project CRUD, status pipeline, yarn/tool linking with quick-view chips, cascade-on-stash-delete
+2. Counters (multi, named, targets) — realtime sync across devices
+3. Project notes + session notes; attachments
+4. Stash intelligence: skeins-used prompts on Finish
 
-App Hosting **already auto-deploys `main`** on push via its GitHub integration (free). No additional workflow needed for production deploys.
+### Phase 5 — Pins + Push-to-Project
+1. Pins CRUD + masonry gallery
+2. Push to Projects (copy, mark pushed)
 
-### Preview deploys for Sheryl (manual)
+### Phase 6 — Ravelry import + monetization + hardening
+1. `ravelry-import` Edge Function per R2: OAuth connect → preview/deselect → mismatch warnings → commit (1 req/sec queue)
+2. RevenueCat + project-cap trigger + placeholder paywall (dev build + TestFlight sandbox)
+3. Offline/conflict hardening; accessibility audit (WCAG 2.2 AA, Dynamic Type, VoiceOver, reduced motion); onboarding (<60s to first action)
 
-App Hosting does not provide per-PR preview URLs (the old Firebase Hosting preview-channel feature doesn't carry over). To give Sheryl a live preview without a paid tier:
-
-- A **`workflow_dispatch`** (manually triggered) Action builds the PR branch and deploys it to a **tagged Cloud Run revision** — a stable preview URL with no production traffic.
-- Cloud Run's free tier (2M req/month, scales to zero) covers a preview hit a handful of times; the build runs on Actions minutes. Free.
-- Manual trigger (not every PR) keeps minute usage and clutter down — run it when Sheryl needs to look.
-
-**Day-one compatibility:** the test setup is structured so these workflows drop in without refactoring (E2E already runs against `supabase start`; tests are runnable headless). Workflow files are written when CI is actually stood up — not part of initial scaffold.
+### Phase 7 — Beta
+1. TestFlight to Sheryl + friends; Maestro suite into CI; store listing prep
 
 ---
 
 ## Versioning & Releases
 
-**RavelPlus is a continuously-deployed web app, not a published package** — so classic package SemVer and changeset tooling don't apply yet. There's no consumer pinning a version; the deployed commit *is* the live version. "Versioning" splits into two real concerns:
+Native apps change the picture from the old web plan:
 
-1. **What's live / bug traceability** → the **git SHA** of the deployed revision. App Hosting / Cloud Run already tags revisions with it. No tooling needed.
-2. **Product milestones** (roadmap v1, v1.1, v1.2, v2…) → human-meaningful releases, tracked with git tags + GitHub Releases.
-
-**Approach for v1 → v2 (low ceremony, all free):**
-- **Conventional Commits** — `feat:`, `fix:`, `docs:`, `chore:`, etc. Enables auto-generated release notes/changelogs later and pairs with CI.
-- **Milestone git tags** — tag `v1.0.0` when v1 ships, `v1.1.0` for stash tracking, etc. Roadmap phases supply the numbers.
-- **GitHub Releases** — one per milestone tag; `gh release create --generate-notes` builds notes from merged PRs. The PR history *is* the changelog pre-launch — no hand-maintained `CHANGELOG.md` until/unless it's useful.
-
-**When to adopt Changesets (`@changesets/cli`):** at **v3**, when the React Native/Expo app shares code with web via **internal workspace packages** (e.g. `packages/api-client`, `packages/types`). Once more than one consumer pins a shared package, independent versioning matters and Changesets earns its place. Premature before then — don't add it for a single deployed app.
+- **App versions are real** — `version` (marketing, e.g. 1.0.0) + build number, managed in `app.json`/EAS (`autoIncrement`). Tag releases `v1.0.0` etc. with GitHub Releases (`--generate-notes`); Conventional Commits continue.
+- **EAS Update `runtimeVersion`** must be managed deliberately — OTA updates only apply to builds with a matching runtime version; any native change bumps it.
+- What's-live traceability = store build number + EAS Update id; Sentry releases tied to both.
+- Changesets remain premature — revisit if/when web (Phase 2 roadmap) shares workspace packages.
 
 ---
 
-## Documentation Reference (`docs/resources.md`)
+## Research Spikes (mapped to PRD §10)
 
-A separate file at `docs/resources.md` (in the repo) will collect official docs, tutorials, and reference material for the tech stack — focused on areas where Diana wants ramp-up support (GCP, Playwright) and quick-reference for the rest.
-
-### Planned structure
-
-The doc will be organized by tech area, with each section listing: official docs, a recommended starter tutorial, and any "gotcha" callouts specific to this project.
-
-**Sections:**
-
-1. **GCP / Supabase / Drizzle** (highest priority — Diana hasn't used GCP in years)
-   - Firebase App Hosting + Cloud Run (Next.js deployment, GitHub integration)
-   - GCP billing budgets & alerts; Cloud Logging
-   - Supabase (project setup, Postgres connection, table editor, local dev via `supabase start`)
-   - Drizzle ORM (schema, migrations with `drizzle-kit`, queries, Supabase connection)
-   - Supabase Auth (providers, `@supabase/ssr`, App Router middleware, Row Level Security policies)
-
-2. **Playwright** (second priority — minimal experience)
-   - Getting started + first test
-   - Auth strategies (storageState pattern — sign in once, reuse session)
-   - Selectors and assertions
-   - Configuring against the test Postgres
-   - Trace viewer & debugging
-
-3. **Next.js + React quick reference** (Diana is experienced — light section)
-   - App Router docs (server vs. client components, routing patterns)
-   - Server Actions / Route Handlers
-   - `next/image`, `next/font`
-   - Middleware (for auth-protected routes)
-
-4. **shadcn/ui + Tailwind**
-   - shadcn/ui installation for Next.js
-   - Component catalog
-   - Tailwind v4 docs
-
-5. **Testing libraries**
-   - Jest (Next.js setup)
-   - React Testing Library
-   - Mock Service Worker (to mock the Ravelry proxy in unit tests)
-   - pglite / local Postgres for testing Drizzle queries
-
-6. **Ravelry API**
-   - API docs index
-   - OAuth/basic auth setup
-   - Pattern search endpoint reference
-   - Rate limits and best practices
-
-7. **Sentry**
-   - Sentry for Next.js setup
-   - Source map upload
-   - Free tier limits reminder
-
-8. **Recommended deep-dive tutorials** (not docs — actual learning resources)
-   - One end-to-end Firebase + Next.js tutorial
-   - One Playwright + Next.js E2E walkthrough
-   - One Cloud Functions TypeScript walkthrough
-
-Each link will be verified at the time of writing. The file is a living document — Diana adds links as she finds useful resources.
+| Spike | PRD item | Owner | Blocks | Deliverable |
+|---|---|---|---|---|
+| **R1 — Sync engine** | §6.9 research flag | Diana | Phase 3 step 5 | 🔬 Architecture notes + spike plan ready: `plans/sync-architecture-r1.md` (PowerSync first, custom fallback; 9-scenario pass/fail matrix). Deliverable: two-device counter demo + decision writeup |
+| **R2 — Ravelry API audit** | #12, #14 | Diana | Phase 6 | ✅ **Done 2026-07-18** — see `plans/ravelry-api-research.md`. All import endpoints exist; OAuth 2.0; no commercial fee. Remaining: confirmation email to api@ravelry.com before Phase 6 ships |
+| **R3 — Barcode/QR for yarn labels** | #9 | Diana | Nothing | ✅ **Done 2026-07-18** — see `plans/ravelry-api-research.md` §Barcode scanning. Scanning is free (expo-camera); Ravelry API has no barcode lookup; no yarn-specific UPC DB exists. **Recommendation: defer to Phase 2**, built as scan → own mapping table → UPC-API fallback → pre-fill the lookup combobox |
+| **R4 — Dynamic forms UX** | #10 | Sheryl (+Diana) | Phase 3 step 1 polish | Interaction spec; registry architecture already accommodates it |
+| **Cost quantification** | #6, #7, #14 | Both | Monetization finalization | Storage math (above), Ravelry licensing (R2), AI/OCR costs (Phase 3 features — can wait) |
 
 ---
 
-## Verification Plan
+## What Changed From the Previous Plan
 
-- After Phase 3: search results load, filters update URL params, tested on Chrome mobile viewport
-- After Phase 5: add a pattern to queue while logged in, verify the row appears in the Supabase table editor
-- Final: deploy to App Hosting, test on a real iPhone
-- Access control: verify one user cannot read another user's saved patterns (Server Action scoped by session `user_id`)
+| Area | Old plan | This plan |
+|---|---|---|
+| Product | Ravelry web front-end (search/queue/library/favorites) | Standalone stash/projects/pins companion (PRD §5) |
+| Platform | Next.js 14 on Firebase App Hosting/Cloud Run | React Native + Expo, iOS-first; **GCP dropped entirely** |
+| Ravelry API | Live proxied data source | One-time OAuth import (Edge Function) |
+| Data model | One `saved_patterns` table | Full relational stash/tools/projects/pins/counters model + shared `yarn_catalog` |
+| Sync | N/A (server-rendered web) | Offline-first local SQLite + sync engine (spike R1) |
+| E2E | Playwright | Maestro (Playwright returns with Phase-2 web) |
+| Costs | $0 flat | $0 services + **$99/yr Apple** (approved, Diana pays) (+$25 Google later) |
+| Kept | — | Supabase + RLS, Drizzle, $0 discipline, Actions CI shape, Conventional Commits + milestone tags, Sentry |
+
+**Follow-up:** `docs/resources.md` still reflects the old stack (Next.js, Firebase, Playwright-for-web) and needs a matching overhaul. `plans/ravelry-pros-and-cons.md` remains useful as competitive/UX reference; its "replicate in RavelPlus" table now applies mostly to the Phase 3+ pattern-discovery vision rather than MVP.
 
 ---
 
-## Open Questions for Sheryl (PRD)
+## Open Questions for Sheryl
 
-- Filter panel interaction on mobile (slide-up drawer? collapsible sidebar? always-visible?)
-- Add-to-collection flow (bottom sheet? inline toggle? explicit modal?)
-- Navigation structure (bottom tab bar on mobile? hamburger? top tabs?)
-- Empty state copy and illustration direction
-- Onboarding flow for new users (connect existing Ravelry account? start fresh?)
+Superseding the old plan's list (filter panels, add-to-collection flows for the web app are moot):
+
+- Design spec per Phase 0 — especially the filter interaction (PRD deliberately leaves bottom-sheet vs chips vs drawer to design) and pins masonry density
+- Dynamic forms UX spike (R4) — what adapts on craft selection vs stash selection?
+- Paywall presentation and free-tier messaging tone ("no penny-pinching" principle)
+- Onboarding flow ordering: empty-state-first vs guided add-first-yarn vs offer-Ravelry-import-first for the refugee persona
+- App name shortlist timing — blocks App Store metadata, icon, and TestFlight naming by Phase 7
